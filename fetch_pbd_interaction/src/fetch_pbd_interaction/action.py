@@ -51,7 +51,7 @@ class Action:
     # its own?
     _marker_publisher = None
 
-    def __init__(self, robot, tf_listener, im_server, primitive_click_cb,
+    def __init__(self, robot, tf_listener, im_server, grasp_im_server, primitive_click_cb,
                  action_change_cb, action_id=None, 
                  grasp_suggestion_service=None,
                  grasp_feedback_topic=None,
@@ -70,6 +70,7 @@ class Action:
         # Initialize a bunch of state.
         self._name = ""  # Human-friendly name for this action.
         self._im_server = im_server
+        self._grasp_im_server = grasp_im_server
         self._seq = []
         self._action_id = action_id
         self._robot = robot
@@ -205,6 +206,7 @@ class Action:
                 target = primitive['grasp']
                 primitive = Grasp(self._robot, self._tf_listener,
                             self._im_server, 
+                            self._grasp_im_server,
                             self._grasp_suggestion_service,
                             self._grasp_feedback_topic,
                             self._external_ee_link)

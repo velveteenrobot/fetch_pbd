@@ -11,7 +11,7 @@ World::World(ros::NodeHandle n, ros::NodeHandle pn,
               const float& obj_distance_zero_clamp, const float& text_h, 
               const float&  surface_h, const float&  text_off, 
               const std::string& base_frame_name)
-              : im_server("/fetch_pbd/world_objects"){
+              : obj_im_server("/fetch_pbd/world_objects"), label_im_server("/fetch_pbd/object_labels"){
   // Two objects must be closer than this to be considered 'the same'.
   obj_similar_dist_threshold = obj_similar_distance_threshold;
 
@@ -311,8 +311,12 @@ void World::recordObjectPose(){
 void World::objectsUpdateCallback(const rail_manipulation_msgs::SegmentedObjectListConstPtr& msg){
   // resetObjects();
   for (int i=0; i < objects.size(); i++){
-    im_server.erase(objects[i].int_marker.name);
-    im_server.applyChanges();
+    obj_im_server.erase(objects[i].int_marker.name);
+    obj_im_server.applyChanges();
+    std::stringstream sstm;
+    sstm << "label " << objects[i].getName();
+    label_im_server.erase(sstm.str());
+    label_im_server.applyChanges();
   }
   objects.clear();
   mutex.lock();
@@ -442,9 +446,9 @@ void World::tablePositionUpdateCallback(const rail_manipulation_msgs::SegmentedO
   // getBoundingBox(pc2, &dimensions, &pose);
   ROS_INFO("Adding table marker");
   visualization_msgs::InteractiveMarker surface = getSurfaceMarker(pose, dimensions);
-  im_server.insert(surface);
-  im_server.setCallback(surface.name, boost::bind(&World::markerFeedbackCallback, this, _1));
-  im_server.applyChanges();
+  obj_im_server.insert(surface);
+  obj_im_server.setCallback(surface.name, boost::bind(&World::markerFeedbackCallback, this, _1));
+  obj_im_server.applyChanges();
   ROS_INFO("Adding surface to planning scene");
   addSurfaceToPlanningScene(pose, dimensions);
   ROS_INFO("Added surface to planning scene");
@@ -505,14 +509,20 @@ void World::resetObjects(){
   mutex.lock();
   ROS_INFO("Resetting objects");
   for (int i=0; i < objects.size(); i++){
-    im_server.erase(objects[i].int_marker.name);
-    im_server.applyChanges();
+    obj_im_server.erase(objects[i].int_marker.name);
+    obj_im_server.applyChanges();
+    std::stringstream sstm;
+    sstm << "label " << objects[i].getName();
+    label_im_server.erase(sstm.str());
+    label_im_server.applyChanges();
   }
   if (has_surface){
     removeSurfaceMarker();
   }
-  im_server.clear();
-  im_server.applyChanges();
+  obj_im_server.clear();
+  obj_im_server.applyChanges();
+  label_im_server.clear();
+  label_im_server.applyChanges();
   objects.clear();
   mutex.unlock();
   worldChanged();
@@ -528,28 +538,27 @@ bool World::addNewObject(geometry_msgs::Pose pose, geometry_msgs::Vector3 dimens
   }
   int n_objects = objects.size();
   objects.push_back(fetch_pbd_interaction::WorldLandmark( 
-                    pose, n_objects, dimensions, point_cloud));//,
-                    // this,
-                    // &fetch_pbd_interaction::World::removeObject, 
-                    // &fetch_pbd_interaction::World::generateGrasps));
+                    pose, n_objects, dimensions, point_cloud));
 
   visualization_msgs::InteractiveMarker int_marker = getObjectMarker(n_objects);
   objects[n_objects].int_marker = int_marker;
   
-  im_server.insert(int_marker);
-  im_server.setCallback(int_marker.name, boost::bind(&World::markerFeedbackCallback, this, _1));
-  im_server.applyChanges();
-  menu_handler.apply(im_server, int_marker.name);
-  im_server.applyChanges();
-
+  obj_im_server.insert(int_marker);
+  obj_im_server.setCallback(int_marker.name, boost::bind(&World::markerFeedbackCallback, this, _1));
+  obj_im_server.applyChanges();
+  menu_handler.apply(obj_im_server, int_marker.name);
+  obj_im_server.applyChanges();
+  visualization_msgs::InteractiveMarker text_marker = getTextMarker(n_objects);
+  label_im_server.insert(text_marker);
+  label_im_server.applyChanges();
   return true;
 }
 
 
 void World::removeSurfaceMarker(){
   ROS_INFO("Removing surface marker");
-  im_server.erase("surface");
-  im_server.applyChanges();
+  obj_im_server.erase("surface");
+  obj_im_server.applyChanges();
   has_surface = false;
 }
 
@@ -570,11 +579,29 @@ visualization_msgs::InteractiveMarker World::getObjectMarker(int index){
   button_control.always_visible = true;
   button_control.markers.push_back(marker_sphere_list);
   button_control.markers.push_back(marker_points);
+  int_marker.controls.push_back(button_control);
+
+  return int_marker;
+}
+
+visualization_msgs::InteractiveMarker World::getTextMarker(int index){
+  visualization_msgs::InteractiveMarker int_marker;
+  std::stringstream sstm;
+  sstm << "label " << objects[index].getName();
+  int_marker.name = sstm.str();
+  int_marker.header.frame_id = objects[index].object.point_cloud.header.frame_id;
+  int_marker.pose.position = objects[index].object.pose.position;
+  int_marker.pose.orientation.w = 1.0;
+  int_marker.scale = 1.0;
+  visualization_msgs::InteractiveMarkerControl button_control;
+  button_control.interaction_mode = visualization_msgs::InteractiveMarkerControl::NONE;
+  button_control.always_visible = true;
+  
   visualization_msgs::Marker text_marker;
   text_marker.type = visualization_msgs::Marker::TEXT_VIEW_FACING;
   text_marker.id = index;
   text_marker.scale = scale_text;
-  text_marker.text = int_marker.name;
+  text_marker.text = objects[index].getName();
   text_marker.color.a = 0.5; //= color_text;
   // text_marker.header.frame_id = base_frame;
   geometry_msgs::Point text_pos;
@@ -587,7 +614,6 @@ visualization_msgs::InteractiveMarker World::getObjectMarker(int index){
   text_marker.pose.orientation.w = 1.0;
   button_control.markers.push_back(text_marker);
   int_marker.controls.push_back(button_control);
-
   return int_marker;
 }
 
@@ -658,9 +684,13 @@ void World::removeObject(const visualization_msgs::InteractiveMarkerFeedbackCons
   getObjectFromNameCallback(req, resp);
   for (int i=0; i < objects.size(); i ++){
     if (objects[i].object.name == resp.obj.name){
-      im_server.erase(objects[i].int_marker.name);
+      obj_im_server.erase(objects[i].int_marker.name);
       objects.erase(objects.begin() + i );
-      im_server.applyChanges();
+      obj_im_server.applyChanges();
+      std::stringstream sstm;
+      sstm << "label " << objects[i].getName();
+      label_im_server.erase(sstm.str());
+      label_im_server.applyChanges();
       break;
     }
   }

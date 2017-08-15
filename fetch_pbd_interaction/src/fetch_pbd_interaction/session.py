@@ -8,6 +8,8 @@ in the current session
 
 # Core ROS imports come first.
 import rospy
+from interactive_markers.interactive_marker_server import \
+     InteractiveMarkerServer
 
 # System builtins
 import datetime
@@ -21,7 +23,7 @@ from std_srvs.srv import Empty as EmptySrv
 from std_msgs.msg import Empty as EmptyMsg
 from std_msgs.msg import String
 from rail_manipulation_msgs.srv import SuggestGrasps
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, Point
 
 # Local
 from fetch_pbd_interaction.action import Action
@@ -54,6 +56,7 @@ class Session:
             tf_listener (TransformListener)
             im_server (InteractiveMarkerSerever)
         '''
+        self._grasp_im_server = InteractiveMarkerServer('/fetch_pbd/grasp_choices')
         self._lock = threading.Lock()
         self._from_file = from_file
         self._to_file = to_file
@@ -84,6 +87,7 @@ class Session:
         self._current_arm_trajectory = None
         self._marker_visibility = []
         self._head_busy = False
+        self._viewer_focus = None
 
         self._actions_disabled = []
 
@@ -164,6 +168,7 @@ class Session:
         action = Action(self._robot,
                         self._tf_listener,
                         self._im_server,
+                        self._grasp_im_server,
                         self._selected_primitive_cb,
                         self._action_change_cb,
                         self._current_action_id,
@@ -272,7 +277,8 @@ class Session:
             current_action = self._actions[self._current_action_id]
             primitive_number = current_action.n_primitives()
             grasp = Grasp(self._robot, self._tf_listener, 
-                              self._im_server, 
+                              self._im_server,
+                              self._grasp_im_server, 
                               self._grasp_suggestion_service,
                               self._grasp_feedback_topic,
                               self._external_ee_link, 
@@ -434,6 +440,7 @@ class Session:
         for result in results:
             if int(result.value['id']) == action_id:
                 action = Action(self._robot, self._tf_listener, self._im_server,
+                           self._grasp_im_server,
                            self._selected_primitive_cb, self._action_change_cb,
                            grasp_suggestion_service=self._grasp_suggestion_service,
                            grasp_feedback_topic=self._grasp_feedback_topic,
@@ -900,6 +907,43 @@ class Session:
         object_list = self._get_object_list_srv().object_list
         positions, orientations = self._get_primitive_positions_orientations()
         rospy.loginfo("Got positions and orientations")
+        show_viewer = False
+        action = self.get_current_action()
+        focus_point = Point()
+        new_focus = None
+        current_focus_num = None
+        if not action is None:
+            primitives = action.get_primitives()
+            for idx, primitive in enumerate(primitives):
+                if type(primitive) is Grasp:
+                    if primitive.show_viewer:
+                        show_viewer = True
+                        if self._viewer_focus is None:
+                            self._viewer_focus = primitive.get_name()
+                            current_focus_num = idx
+                            rospy.loginfo("No current focus")
+                        elif self._viewer_focus == primitive.get_name():
+                            current_focus_num = idx
+                            rospy.loginfo("Same as current focus")
+                        else:
+                            new_focus = idx
+                            rospy.loginfo("New focus")
+            if not new_focus is None:
+                if not current_focus_num is None:
+                    primitives[current_focus_num].show_viewer = False
+                    primitives[current_focus_num].update_viz()
+                    primitives[current_focus_num].hide_choice_markers()
+
+                self._viewer_focus = primitives[new_focus].get_name()
+                focus_point = primitives[new_focus].get_landmark().pose.position
+                primitives[new_focus].show_choice_markers()
+                rospy.loginfo("New focus point: {}".format(focus_point))
+            elif not current_focus_num is None:
+                focus_point = primitives[current_focus_num].get_landmark().pose.position
+                primitives[current_focus_num].show_choice_markers()
+                rospy.loginfo("Not a new focus: {}".format(focus_point))
+            else:
+                rospy.loginfo("Some other weird thing")
 
         return SessionState(
             self.n_actions(),
@@ -915,7 +959,10 @@ class Session:
             [],
             object_list,
             positions,
-            orientations)
+            orientations,
+            show_viewer,
+            focus_point
+            )
 
     def _get_action_names(self):
         '''Return the names of all of the actions in the session
@@ -1006,6 +1053,7 @@ class Session:
         # Load data from db into Action objects.
         for result in results:
             action = Action(self._robot, self._tf_listener, self._im_server,
+                       self._grasp_im_server,
                        self._selected_primitive_cb, self._action_change_cb, 
                        grasp_suggestion_service=self._grasp_suggestion_service,
                        grasp_feedback_topic=self._grasp_feedback_topic,
@@ -1034,6 +1082,7 @@ class Session:
             self._actions_disabled = []
             for key in keys:
                 action = Action(self._robot, self._tf_listener, self._im_server,
+                       self._grasp_im_server,
                        self._selected_primitive_cb, self._action_change_cb,
                        grasp_suggestion_service=self._grasp_suggestion_service,
                        grasp_feedback_topic=self._grasp_feedback_topic,

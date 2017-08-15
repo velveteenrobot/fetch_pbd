@@ -5,6 +5,7 @@
 #include <string>
 #include <boost/thread/mutex.hpp>
 #include <boost/thread/thread.hpp>
+#include <sstream>
 
 #include "ros/ros.h"
 #include "sensor_msgs/PointCloud2.h"
@@ -90,7 +91,8 @@ class World {
 private:
     boost::mutex mutex;
     std::vector<fetch_pbd_interaction::WorldLandmark> objects;
-    interactive_markers::InteractiveMarkerServer im_server;
+    interactive_markers::InteractiveMarkerServer obj_im_server;
+    interactive_markers::InteractiveMarkerServer label_im_server;
     ros::Publisher add_grasp_pub;
     ros::Publisher world_update_pub;
     ros::Publisher planning_scene_diff_publisher;
@@ -193,6 +195,8 @@ private:
     void removeSurfaceMarker();
 
     visualization_msgs::InteractiveMarker getObjectMarker(int index);
+    
+    visualization_msgs::InteractiveMarker getTextMarker(int index);
 
     void addSurfaceToPlanningScene(geometry_msgs::Pose pose, geometry_msgs::Vector3 dimensions);
 

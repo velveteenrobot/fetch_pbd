@@ -62,7 +62,8 @@ MENU_OPTIONS = {
     'del': 'Delete',
     'regen': 'Regenerate grasps',
     'gen' : 'Generate grasps',
-    'choice' : 'Switch grasp to:'
+    'show_viewer' : 'Show grasp choices',
+    'hide_viewer' : 'Hide grasp choices'
 
 }
 
@@ -102,7 +103,7 @@ class Grasp(Primitive):
 
     _offset = DEFAULT_OFFSET
 
-    def __init__(self, robot, tf_listener, im_server, 
+    def __init__(self, robot, tf_listener, im_server, grasp_im_server,
                     grasp_suggestion_service_name=None, 
                     grasp_feedback_topic=None, 
                     external_ee_link=None, 
@@ -119,6 +120,9 @@ class Grasp(Primitive):
         '''
         self._name = '' #Unused currently
         self._im_server = im_server
+        self._grasp_im_server = grasp_im_server
+        self.show_viewer = False
+
         self._robot = robot
         self._number = number
 
@@ -152,6 +156,7 @@ class Grasp(Primitive):
         self._pose_change_cb = None
         self._action_change_cb = None
         self._viewed_grasps = []
+        self._grasp_markers = []
 
         self._get_object_from_name_srv = rospy.ServiceProxy(
                                          '/fetch_pbd/get_object_from_name',
@@ -711,6 +716,37 @@ class Grasp(Primitive):
         '''
         return ArmState.OBJECT
 
+    def get_landmark(self):
+        '''Return landmark of primitive
+
+        Returns:
+            Landmark
+        '''
+        return self._grasp_state.ref_landmark
+
+    def hide_choice_markers(self):
+        '''Hide grasp choice markers.'''
+        self._grasp_im_server.clear()
+        self._grasp_im_server.applyChanges()
+        for marker in self._grasp_markers:
+            self._grasp_im_server.erase(marker.name)
+        self._grasp_im_server.applyChanges()
+        self._hide_viewer_cb(None)
+
+    def show_choice_markers(self):
+        '''Callback for showing viewer.
+
+        Args:
+            feedback (InteractiveMarkerFeedback): Unused
+        '''
+        self._grasp_im_server.clear()
+        self._grasp_im_server.applyChanges()
+        if not self._viewed_grasps and len(self._current_grasp_list) > 0:
+            self._viewed_grasps = range(len(self._current_grasp_list))
+        for marker in self._grasp_markers:
+            self._grasp_im_server.insert(marker, self._grasp_marker_cb)
+        self._grasp_im_server.applyChanges()
+
     # ##################################################################
     # Static methods: Internal ("private")
     # ##################################################################
@@ -911,11 +947,10 @@ class Grasp(Primitive):
         self._suggest_grasps(self._grasp_state.ref_landmark)
 
 
-    def _switch_grasp_cb(self, feedback):
+    def _switch_grasp(self, num):
         '''Callback to switch between grasps indicated by menu entries'''
-        menu_id = feedback.menu_entry_id
-        self._current_grasp_num = self._grasp_menu_entries.index(menu_id)
-        self._viewed_grasps.append(self._current_grasp_num)
+        self._current_grasp_num = num
+        # self._viewed_grasps.append(self._current_grasp_num)
         grasp_pose = self._current_grasp_list[self._current_grasp_num]
         self.build_from_pose(grasp_pose, 
                                 self._grasp_state.ref_landmark, 
@@ -944,6 +979,30 @@ class Grasp(Primitive):
             self._current_grasp_list = \
                     [PoseStamped(header=grasps.header, pose=p) \
                      for p in grasps.poses]
+            for id, grasp in enumerate(self._current_grasp_list):
+                marker = InteractiveMarker()
+                marker.header.frame_id = grasp.header.frame_id
+                marker.pose = grasp.pose
+                # marker.scale = INT_MARKER_SCALE
+                marker.name = str(id)
+                control = InteractiveMarkerControl()
+                control.interaction_mode = InteractiveMarkerControl.BUTTON
+                control.always_visible = True
+                arrow_marker = Marker()
+                arrow_marker.type = Marker.ARROW
+                arrow_marker.header.frame_id = ''
+                arrow_marker.pose.position.x = -0.10
+                arrow_marker.pose.orientation.w = 1.0
+                arrow_marker.scale.x = 0.06
+                arrow_marker.scale.y = 0.007
+                arrow_marker.scale.z = 0.01
+                arrow_marker.color = ColorRGBA(0.0, 1.0, 0.0, 1.0)
+                control.markers.append(arrow_marker)
+                marker.controls.append(control)
+                rospy.loginfo("marker: {}".format(marker))
+                self._grasp_markers.append(marker)
+                # self._grasp_im_server.insert(marker, self._grasp_marker_cb)
+                # self._grasp_im_server.applyChanges()
             self._change_grasp_frames(EE_LINK)
             pose_stamped = self._current_grasp_list[0]
             self.build_from_pose(pose_stamped, 
@@ -955,8 +1014,17 @@ class Grasp(Primitive):
             self._pose_change_cb()
             self._head_busy = False
             self._robot.look_forward()
-            self._viewed_grasps.append(0)
+            # self._viewed_grasps.append(0)
             return True
+
+    def _grasp_marker_cb(self, feedback):
+        '''Callback for when an event occurs on the marker.
+
+        Args:
+            feedback (InteractiveMarkerFeedback)
+        '''
+        grasp_num = int(feedback.marker_name)
+        self._switch_grasp(grasp_num)
 
     def _change_grasp_frames(self, target_frame):
         '''Change frames of grasps in self._current_grasp_list'''
@@ -1033,26 +1101,31 @@ class Grasp(Primitive):
         if self._current_grasp_list:
             self._menu_handler.insert(
                 MENU_OPTIONS['regen'], callback=self._regenerate_grasps_cb)
-            grasp_choice_entry = self._menu_handler.insert( 
-                                                MENU_OPTIONS['choice'])
-            for i in range(len(self._current_grasp_list)):
-                grasp_ent = self._menu_handler.insert("grasp_" + str(i),
-                                        parent=grasp_choice_entry,
-                                        callback=self._switch_grasp_cb)
-                self._grasp_menu_entries += [grasp_ent]
+            # grasp_choice_entry = self._menu_handler.insert( 
+            #                                     MENU_OPTIONS['choice'])
+            # for i in range(len(self._current_grasp_list)):
+            #     grasp_ent = self._menu_handler.insert("grasp_" + str(i),
+            #                             parent=grasp_choice_entry,
+            #                             callback=self._switch_grasp_cb)
+            #     self._grasp_menu_entries += [grasp_ent]
 
-            for grasp_ent in self._grasp_menu_entries:
-                self._menu_handler.setCheckState(grasp_ent, 
-                                                MenuHandler.UNCHECKED)
-            if not self._current_grasp_num is None:
-                self._menu_handler.setCheckState(
-                            self._grasp_menu_entries[self._current_grasp_num], 
-                            MenuHandler.CHECKED)
-
+            # for grasp_ent in self._grasp_menu_entries:
+            #     self._menu_handler.setCheckState(grasp_ent, 
+            #                                     MenuHandler.UNCHECKED)
+            # if not self._current_grasp_num is None:
+            #     self._menu_handler.setCheckState(
+            #                 self._grasp_menu_entries[self._current_grasp_num], 
+            #                 MenuHandler.CHECKED)
+            if self.show_viewer:
+                self._menu_handler.insert(
+                    MENU_OPTIONS['hide_viewer'], callback=self._hide_viewer_cb)
+            else:
+                self._menu_handler.insert(
+                    MENU_OPTIONS['show_viewer'], callback=self._show_viewer_cb)
         else:
             self._menu_handler.insert(
                 MENU_OPTIONS['gen'], callback=self._generate_grasps_cb)
-
+        
 
         # Make all unchecked to start.
         for subent in self._sub_entries:
@@ -1468,6 +1541,37 @@ class Grasp(Primitive):
         self.show_marker()
         self._action_change_cb()
         self._pose_change_cb()
+
+    def _show_viewer_cb(self, feedback):
+        '''Callback for showing viewer.
+
+        Args:
+            feedback (InteractiveMarkerFeedback): Unused
+        '''
+        self.show_viewer = True
+        self.update_viz(False)
+        self._menu_handler.apply(self._im_server, self.get_name())
+        self._im_server.applyChanges()
+        self._action_change_cb()
+        self._grasp_im_server.clear()
+        self._grasp_im_server.applyChanges()
+        if not self._viewed_grasps and len(self._current_grasp_list) > 0:
+            self._viewed_grasps = range(len(self._current_grasp_list))
+        for marker in self._grasp_markers:
+            self._grasp_im_server.insert(marker, self._grasp_marker_cb)
+        self._grasp_im_server.applyChanges()
+
+    def _hide_viewer_cb(self, feedback):
+        '''Callback for showing viewer.
+
+        Args:
+            feedback (InteractiveMarkerFeedback): Unused
+        '''
+        self.show_viewer = False
+        self.update_viz(False)
+        self._menu_handler.apply(self._im_server, self.get_name())
+        self._im_server.applyChanges()
+        self._action_change_cb()
 
     def _move_to_cb(self, feedback):
         '''Callback for when moving to a pose is requested.

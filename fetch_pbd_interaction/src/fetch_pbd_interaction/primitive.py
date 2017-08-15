@@ -142,5 +142,9 @@ class Primitive:
     def get_ref_type(self):
         pass
 
+    @abstractmethod
+    def get_landmark(self):
+        pass
+
 
 

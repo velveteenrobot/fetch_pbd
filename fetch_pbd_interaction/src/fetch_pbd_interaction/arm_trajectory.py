@@ -561,6 +561,14 @@ class ArmTrajectory(Primitive):
         '''
         return self._ref_type
 
+    def get_landmark(self):
+        '''Return landmark of primitive
+
+        Returns:
+            Landmark
+        '''
+        return self._ref_landmark
+
     # ##################################################################
     # Static methods: Internal ("private")
     # ##################################################################

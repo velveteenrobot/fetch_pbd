@@ -1102,10 +1102,10 @@ ROS3D.InteractiveMarkerControl = function(options) {
     this.addEventListener('mouseup', this.parent.stopDrag.bind(this.parent, this));
     this.addEventListener('contextmenu', this.parent.showMenu.bind(this.parent, this));
     this.addEventListener('mouseup', function(event3d) {
-      // if (that.startMousePos.distanceToSquared(event3d.mousePos) === 0) {
-      //   event3d.type = 'contextmenu';
-      //   that.dispatchEvent(event3d);
-      // }
+      if (that.startMousePos.distanceToSquared(event3d.mousePos) === 0) {
+        event3d.type = 'contextmenu';
+        that.dispatchEvent(event3d);
+      }
     });
     this.addEventListener('mouseover', stopPropagation);
     this.addEventListener('mouseout', stopPropagation);
@@ -4939,6 +4939,37 @@ ROS3D.OrbitControls.prototype.update = function() {
   this.thetaDelta = 0;
   this.phiDelta = 0;
   this.scale = 1;
+
+  if (this.lastPosition.distanceTo(this.camera.position) > 0) {
+    this.dispatchEvent({
+      type : 'change'
+    });
+    this.lastPosition.copy(this.camera.position);
+  }
+};
+
+/**
+ * Look at point.
+ */
+ROS3D.OrbitControls.prototype.lookAt = function(point, vantage_point) {
+
+  this.center = point;
+
+  this.camera.lookAt(this.center);
+
+  var position = this.camera.position;
+  var offset = position.clone().sub(this.center);
+  position.copy(this.center).add(offset);
+  var radius = offset.length();
+
+  this.axes.position = this.center.clone();
+  this.axes.scale.x = this.axes.scale.y = this.axes.scale.z = radius * 0.05;
+  this.axes.updateMatrixWorld(true);
+
+  this.thetaDelta = 0;
+  this.phiDelta = 0;
+  this.scale = 1;
+  this.camera.position = vantage_point;
 
   if (this.lastPosition.distanceTo(this.camera.position) > 0) {
     this.dispatchEvent({

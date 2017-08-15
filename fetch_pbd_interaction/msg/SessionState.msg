@@ -12,3 +12,5 @@ std_msgs/ColorRGBA[] primitive_colors
 fetch_pbd_interaction/Landmark[] objects
 geometry_msgs/Point[] positions
 fetch_pbd_interaction/OrientationRPY[] orientations
+bool show_grasp_window
+geometry_msgs/Point obj_center

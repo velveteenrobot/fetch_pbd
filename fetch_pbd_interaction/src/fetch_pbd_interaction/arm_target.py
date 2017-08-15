@@ -564,6 +564,14 @@ class ArmTarget(Primitive):
         '''
         return self._arm_state.ref_type
 
+    def get_landmark(self):
+        '''Return landmark of primitive
+
+        Returns:
+            Landmark
+        '''
+        return self._arm_state.ref_landmark
+
     # ##################################################################
     # Static methods: Internal ("private")
     # ##################################################################

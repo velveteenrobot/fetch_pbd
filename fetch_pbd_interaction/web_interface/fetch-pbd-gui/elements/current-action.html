@@ -59,8 +59,20 @@
       }
       #viewer {
         overflow:hidden;
-        padding-left: 32px;
+        padding-left: 28px;
         height: 600px;
+        z-index: 2;
+        margin-left: -232px;
+      }
+      #graspViewer {
+        overflow:hidden;
+        width: 202px;
+        height: 200px;
+        position: relative;
+        top: 0px;
+        margin-left: 32px;
+        z-index: 3;
+        border: 1px solid black;
       }
       #actionName {
         padding-left: 32px;
@@ -148,7 +160,10 @@
     <div id='container' class='container flex-vertical'>
       <paper-input id='actionName' label='Action name' class='programName flex' value='{{action_name}}' on-change='onNameChange'></paper-input>
       <div id='container' class='flex-horizontal'>
-        <div id='viewer' class='flex'></div>
+        <div id='graspViewer' class='graspViewer'></div>
+        <div id='viewer' class='flex' >
+        </div>
+        
         <div id='primitiveListContainer' >
           <div class='title'>Primitive List</div>
           <table id='primitiveList' class='primitiveList'>
@@ -376,6 +391,14 @@
           background: '#78909C'
         });
 
+        this._grasp_viewer = new ROS3D.Viewer({
+          divID: 'graspViewer',
+          width: 202,
+          height: 200,
+          antialias: true,
+          background: '#78909C'
+        });
+
         this._viewer.addObject(new ROS3D.Grid());
 
         // Setup a client to listen to TFs.
@@ -403,6 +426,14 @@
           loader : ROS3D.COLLADA_LOADER_2
         });
 
+        this._grasp_urdf = new ROS3D.UrdfClient({
+          ros : this.ros,
+          tfClient : this.tfClient,
+          path : 'http://resources.robotwebtools.org/',
+          rootObject : this._grasp_viewer.scene,
+          loader : ROS3D.COLLADA_LOADER_2
+        });
+
         //IM client
         this._im = new ROS3D.InteractiveMarkerClient({
           ros : this.ros,
@@ -420,6 +451,33 @@
           topic : '/fetch_pbd/world_objects',
           camera : this._viewer.camera,
           rootObject : this._viewer.selectableObjects
+        });
+
+        this._im_3 = new ROS3D.InteractiveMarkerClient({
+          ros : this.ros,
+          tfClient : this.tfClient,
+          path : 'http://resources.robotwebtools.org/',
+          topic : '/fetch_pbd/object_labels',
+          camera : this._viewer.camera,
+          rootObject : this._viewer.selectableObjects
+        });
+
+        this._im_grasp_viewer = new ROS3D.InteractiveMarkerClient({
+          ros : this.ros,
+          tfClient : this.tfClient,
+          path : 'http://resources.robotwebtools.org/',
+          topic : '/fetch_pbd/world_objects',
+          camera : this._grasp_viewer.camera,
+          rootObject : this._grasp_viewer.selectableObjects
+        });
+
+        this._im_grasp_viewer_2 = new ROS3D.InteractiveMarkerClient({
+          ros : this.ros,
+          tfClient : this.tfClient,
+          path : 'http://resources.robotwebtools.org/',
+          topic : '/fetch_pbd/grasp_choices',
+          camera : this._grasp_viewer.camera,
+          rootObject : this._grasp_viewer.selectableObjects
         });
 
         this.addEventListener('iron-resize', function() {
@@ -588,6 +646,20 @@
           primitives.push(primitive);
         }
         that.primitives = primitives;
+
+        var show_grasp_viewer = message.show_grasp_window;
+        var point = new THREE.Vector3(0.0, 0.0, 0.0);
+        var vantage_point = new THREE.Vector3(0.0, 0.0, 0.0);
+        if (show_grasp_viewer) {
+          point = new THREE.Vector3(message.obj_center.x, message.obj_center.y, message.obj_center.z);
+          vantage_point = new THREE.Vector3(point.x, point.y, point.z + 0.5);
+        }
+        console.log("print");
+        console.log(point);
+        console.log(vantage_point);
+        console.log(show_grasp_viewer);
+        this.viewGrasps(point, vantage_point, show_grasp_viewer);
+
       },
 
       resize: function() {
@@ -595,6 +667,20 @@
           var width = this.$.viewer.offsetWidth;
           var height = 600;
           this._viewer.resize(width, height);
+        }
+      },
+
+      viewGrasps: function(focus_point, vantage_point, show) {
+        
+        if (this._grasp_viewer) {
+          var target = document.getElementById('graspViewer');
+          if (show) {
+            target.style.visibility='visible';
+          }
+          else {
+            target.style.visibility='hidden';
+          }
+          this._grasp_viewer.cameraControls.lookAt(focus_point, vantage_point);
         }
       },
 
